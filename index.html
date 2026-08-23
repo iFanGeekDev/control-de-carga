@@ -247,6 +247,14 @@
   display: flex; flex-direction: column;
 }
 .pcard:hover { transform: translateY(-2px); box-shadow: 0 6px 14px rgba(0,0,0,0.35); }
+.pcard.is-sold { box-shadow: 0 0 0 2px #6b21a8 inset; }
+.pcard.is-sold .photo-box { opacity: 0.55; }
+.sell-btn {
+  font-family: 'IBM Plex Mono', monospace; font-size: 10px; font-weight: 600;
+  background: #0f766e; color: #fff; border: none; border-radius: 2px;
+  padding: 5px 0; margin-top: 2px; cursor: pointer; letter-spacing: 0.02em;
+}
+.sell-btn:hover { filter: brightness(1.1); }
 .pcard .photo-box {
   background: var(--paper-2);
   height: 118px;
@@ -416,7 +424,7 @@ table.inv-table img.thumb { width: 30px; height: 30px; object-fit: contain; back
         <thead>
           <tr>
             <th></th><th>Producto</th><th>Categoría</th><th>Costo</th><th>Envío est.</th><th>Tracking</th>
-            <th>Llegada</th><th>Danna</th><th>Ubicación</th><th>Uso</th><th>Venta</th>
+            <th>Llegada</th><th>Danna</th><th>Ubicación</th><th>Uso</th><th>Venta</th><th></th>
           </tr>
         </thead>
         <tbody id="tableBody"></tbody>
@@ -810,9 +818,11 @@ table.inv-table img.thumb { width: 30px; height: 30px; object-fit: contain; back
     el("emptyNote").style.display = "none";
     wrap.innerHTML = list.map(p => {
       const st = statusOf(p);
+      const isSold = p.salePriceUsd != null;
       const img = p.img ? `<img src="${p.img.startsWith('http') ? p.img : 'data:image/jpeg;base64,' + p.img}">` : `<span class="mono" style="font-size:10px;color:#7a7360;">SIN FOTO</span>`;
       const personalBadge = p.personalUse ? `<div class="stamp" style="left:8px; right:auto; color:#6b21a8; border-color:#6b21a8;">MÍO</div>` : "";
-      return `<div class="pcard" data-id="${p.id}">
+      const sellBtn = (!isSold && !p.personalUse) ? `<button class="sell-btn" data-sell-id="${p.id}">💰 Marcar vendido</button>` : "";
+      return `<div class="pcard ${isSold ? 'is-sold' : ''}" data-id="${p.id}">
         <div class="stamp ${st.cls}">${st.label}</div>
         ${personalBadge}
         <div class="photo-box">${img}</div>
@@ -821,10 +831,18 @@ table.inv-table img.thumb { width: 30px; height: 30px; object-fit: contain; back
           <span class="tag"><span class="dot" style="background:${CAT_COLORS[p.category]};"></span>${p.category}</span>
           <div class="prow"><span class="cost">${fmtUSD(p.costUsd)}</span><span style="color:#6b6152;">${p.location}</span></div>
           <div class="prow" style="opacity:0.75;"><span>+ envío ${fmtUSD(shippingCostOf(p))}</span></div>
+          ${sellBtn}
         </div>
       </div>`;
     }).join("");
-    wrap.querySelectorAll(".pcard").forEach(c => c.addEventListener("click", () => openModal(Number(c.dataset.id))));
+    wrap.querySelectorAll(".pcard").forEach(c => c.addEventListener("click", (e) => {
+      if (e.target.closest(".sell-btn")) return;
+      openModal(Number(c.dataset.id));
+    }));
+    wrap.querySelectorAll(".sell-btn").forEach(b => b.addEventListener("click", (e) => {
+      e.stopPropagation();
+      openSaleModal(Number(b.dataset.sellId));
+    }));
   }
 
   function renderTable(list) {
@@ -833,7 +851,9 @@ table.inv-table img.thumb { width: 30px; height: 30px; object-fit: contain; back
     el("emptyNote").style.display = "none";
     body.innerHTML = list.map(p => {
       const img = p.img ? `<img class="thumb" src="${p.img.startsWith('http') ? p.img : 'data:image/jpeg;base64,' + p.img}">` : `<div class="thumb"></div>`;
-      return `<tr data-id="${p.id}">
+      const isSold = p.salePriceUsd != null;
+      const sellCell = (!isSold && !p.personalUse) ? `<button class="sell-btn" data-sell-id="${p.id}" style="padding:4px 8px;">💰 Vender</button>` : (isSold ? '<span class="mono" style="color:#6b21a8;">✓ Vendido</span>' : '');
+      return `<tr data-id="${p.id}" ${isSold ? 'style="background:#241a2e;"' : ''}>
         <td>${img}</td>
         <td>${escapeHtml(p.name)}</td>
         <td>${p.category}</td>
@@ -845,9 +865,17 @@ table.inv-table img.thumb { width: 30px; height: 30px; object-fit: contain; back
         <td>${p.location}</td>
         <td>${p.personalUse ? '<span style="color:#a855f7;">Mío</span>' : 'Revender'}</td>
         <td class="mono">${p.salePricePen != null ? fmtPEN(p.salePricePen) : "-"}</td>
+        <td>${sellCell}</td>
       </tr>`;
     }).join("");
-    body.querySelectorAll("tr").forEach(r => r.addEventListener("click", () => openModal(Number(r.dataset.id))));
+    body.querySelectorAll("tr").forEach(r => r.addEventListener("click", (e) => {
+      if (e.target.closest(".sell-btn")) return;
+      openModal(Number(r.dataset.id));
+    }));
+    body.querySelectorAll(".sell-btn").forEach(b => b.addEventListener("click", (e) => {
+      e.stopPropagation();
+      openSaleModal(Number(b.dataset.sellId));
+    }));
   }
 
   function escapeHtml(s) {
@@ -1104,9 +1132,12 @@ table.inv-table img.thumb { width: 30px; height: 30px; object-fit: contain; back
   }
 
   // ===== Sale registration modal =====
-  function openSaleModal() {
+  function openSaleModal(preselectId) {
     const unsold = products.filter(p => p.salePriceUsd == null && !p.personalUse);
     el("s_product").innerHTML = unsold.map(p => `<option value="${p.id}">${escapeHtml(p.name)} (${fmtUSD(p.costUsd)})</option>`).join("");
+    if (preselectId && unsold.some(p => p.id === preselectId)) {
+      el("s_product").value = String(preselectId);
+    }
     el("s_price").value = "";
     el("s_buyer").value = "";
     el("s_date").value = new Date().toISOString().slice(0,10);
@@ -1126,7 +1157,7 @@ table.inv-table img.thumb { width: 30px; height: 30px; object-fit: contain; back
     el("saleCostPreview").textContent = `Costo total: ${fmtUSD(tc)} · Venta: ${fmtPEN(pen)} (≈ ${fmtUSD(usd)} a S/${fxRate.toFixed(3)})` +
       (pen>0 ? ` · Ganancia: ${fmtUSD(profit)} (≈ ${fmtPEN(profit*fxRate)}) · Margen: ${margin.toFixed(1)}% · Markup: ${markup!=null?markup.toFixed(1)+'%':'-'}` : "");
   }
-  el("addSaleBtn").addEventListener("click", openSaleModal);
+  el("addSaleBtn").addEventListener("click", () => openSaleModal());
   el("closeSaleModalBtn").addEventListener("click", closeSaleModal);
   el("cancelSaleBtn").addEventListener("click", closeSaleModal);
   el("saleModalOverlay").addEventListener("click", (e)=>{ if(e.target.id==="saleModalOverlay") closeSaleModal(); });
