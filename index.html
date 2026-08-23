@@ -411,6 +411,7 @@ table.inv-table img.thumb { width: 30px; height: 30px; object-fit: contain; back
     <div class="spacer"></div>
     <button class="btn btn-ghost active" id="viewGridBtn">Cuadrícula</button>
     <button class="btn btn-ghost" id="viewTableBtn">Tabla</button>
+    <button class="btn btn-ghost" id="exportInventoryBtn">⬇ Exportar CSV</button>
     <button class="btn btn-primary" id="addBtn">+ Agregar producto</button>
   </div>
 
@@ -439,6 +440,8 @@ table.inv-table img.thumb { width: 30px; height: 30px; object-fit: contain; back
     <div class="product-wrap">
       <div class="toolbar" style="position:static; margin-top:0;">
         <div style="font-weight:600;">Historial de ventas</div>
+        <input type="text" id="salesSearchInput" placeholder="Buscar por producto o comprador..." style="max-width:260px;">
+        <button class="btn btn-ghost" id="exportSalesBtn">⬇ Exportar CSV</button>
         <div class="spacer"></div>
         <button class="btn btn-primary" id="addSaleBtn">+ Registrar venta</button>
       </div>
@@ -467,6 +470,10 @@ table.inv-table img.thumb { width: 30px; height: 30px; object-fit: contain; back
       </div>
     </div>
     <div class="product-wrap" style="padding-top:0;">
+      <div class="chart-card" style="margin-bottom:14px;">
+        <h3>Precio de venta promedio por categoría</h3>
+        <div id="avgByCategoryList"></div>
+      </div>
       <div class="chart-card" style="margin-bottom:14px;">
         <h3>Top 5 productos más rentables</h3>
         <div id="topProfitList"></div>
@@ -724,6 +731,19 @@ table.inv-table img.thumb { width: 30px; height: 30px; object-fit: contain; back
   function marginOf(p) { const pr = profitOf(p); return (pr != null && p.salePriceUsd) ? (pr / Number(p.salePriceUsd)) * 100 : null; }
   function markupOf(p) { const pr = profitOf(p); const tc = totalCostOf(p); return (pr != null && tc > 0) ? (pr / tc) * 100 : null; }
 
+  const OLD_STOCK_DAYS = 30;
+  function daysSince(dateStr) {
+    if (!dateStr) return null;
+    const d = new Date(dateStr + "T00:00:00");
+    if (isNaN(d)) return null;
+    return Math.floor((Date.now() - d.getTime()) / 86400000);
+  }
+  function isOldStock(p) {
+    if (p.salePriceUsd != null || p.personalUse || !p.arrivalDate) return false;
+    const d = daysSince(p.arrivalDate);
+    return d != null && d >= OLD_STOCK_DAYS;
+  }
+
   function computeStats(list) {
     const totalInvested = list.reduce((s,p) => s + Number(p.costUsd||0), 0);
     const pendingArrival = list.filter(p => !p.arrivalDate).length;
@@ -732,7 +752,8 @@ table.inv-table img.thumb { width: 30px; height: 30px; object-fit: contain; back
     const profit = sold.reduce((s,p) => s + (profitOf(p)||0), 0);
     const personalItems = list.filter(p => p.personalUse);
     const personalSpend = personalItems.reduce((s,p) => s + totalCostOf(p), 0);
-    return { totalInvested, pendingArrival, pendingSend, soldCount: sold.length, profit, total: list.length, personalCount: personalItems.length, personalSpend };
+    const oldStock = list.filter(isOldStock);
+    return { totalInvested, pendingArrival, pendingSend, soldCount: sold.length, profit, total: list.length, personalCount: personalItems.length, personalSpend, oldStockCount: oldStock.length };
   }
 
   function renderStats(list) {
@@ -745,6 +766,7 @@ table.inv-table img.thumb { width: 30px; height: 30px; object-fit: contain; back
       <div class="stat-card"><div class="label">Vendidos</div><div class="value teal">${s.soldCount}</div></div>
       <div class="stat-card"><div class="label">Ganancia realizada</div><div class="value dual teal">${fmtDual(s.profit)}</div></div>
       <div class="stat-card"><div class="label">Gastado en uso personal (${s.personalCount})</div><div class="value" style="color:#6b21a8;">${fmtUSD(s.personalSpend)}</div></div>
+      <div class="stat-card"><div class="label">Stock viejo (${OLD_STOCK_DAYS}+ días)</div><div class="value accent">${s.oldStockCount}</div></div>
     `;
   }
 
@@ -822,6 +844,7 @@ table.inv-table img.thumb { width: 30px; height: 30px; object-fit: contain; back
       const img = p.img ? `<img src="${p.img.startsWith('http') ? p.img : 'data:image/jpeg;base64,' + p.img}">` : `<span class="mono" style="font-size:10px;color:#7a7360;">SIN FOTO</span>`;
       const personalBadge = p.personalUse ? `<div class="stamp" style="left:8px; right:auto; color:#6b21a8; border-color:#6b21a8;">MÍO</div>` : "";
       const sellBtn = (!isSold && !p.personalUse) ? `<button class="sell-btn" data-sell-id="${p.id}">💰 Marcar vendido</button>` : "";
+      const oldBadge = isOldStock(p) ? `<div class="prow" style="color:#d97706;"><span>⏳ ${daysSince(p.arrivalDate)} días en stock</span></div>` : "";
       return `<div class="pcard ${isSold ? 'is-sold' : ''}" data-id="${p.id}">
         <div class="stamp ${st.cls}">${st.label}</div>
         ${personalBadge}
@@ -831,6 +854,7 @@ table.inv-table img.thumb { width: 30px; height: 30px; object-fit: contain; back
           <span class="tag"><span class="dot" style="background:${CAT_COLORS[p.category]};"></span>${p.category}</span>
           <div class="prow"><span class="cost">${fmtUSD(p.costUsd)}</span><span style="color:#6b6152;">${p.location}</span></div>
           <div class="prow" style="opacity:0.75;"><span>+ envío ${fmtUSD(shippingCostOf(p))}</span></div>
+          ${oldBadge}
           ${sellBtn}
         </div>
       </div>`;
@@ -1077,6 +1101,43 @@ table.inv-table img.thumb { width: 30px; height: 30px; object-fit: contain; back
   el("filterPersonal").addEventListener("change", renderAll);
   el("viewGridBtn").addEventListener("click", () => { viewMode = "grid"; el("viewGridBtn").classList.add("active"); el("viewTableBtn").classList.remove("active"); renderAll(); });
   el("viewTableBtn").addEventListener("click", () => { viewMode = "table"; el("viewTableBtn").classList.add("active"); el("viewGridBtn").classList.remove("active"); renderAll(); });
+  el("salesSearchInput").addEventListener("input", renderVentas);
+
+  // ===== CSV export =====
+  function downloadCsv(filename, rows) {
+    const esc = (v) => {
+      const s = String(v == null ? "" : v);
+      return /[",\n]/.test(s) ? '"' + s.replace(/"/g,'""') + '"' : s;
+    };
+    const csv = rows.map(r => r.map(esc).join(",")).join("\n");
+    const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = filename;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
+  el("exportInventoryBtn").addEventListener("click", () => {
+    const header = ["ID","Producto","Categoría","Orden eBay","Costo USD","Envío est. USD","Tracking","Fecha llegada","Enviado a Danna","Fecha envío","Peso lb","Grupo envío","Ubicación","Uso","Precio venta S/","Comprador","Fecha venta"];
+    const rows = [header].concat(products.map(p => [
+      p.id, p.name, p.category, p.orderNumber || "", p.costUsd, shippingCostOf(p).toFixed(2), p.tracking || "",
+      p.arrivalDate || "PENDIENTE", p.sentToDanna ? "Si" : "No", p.sentDate || "",
+      p.weightLb || "", p.shipmentGroup || "", p.location, p.personalUse ? "Mio" : "Revender",
+      p.salePricePen != null ? p.salePricePen : "", p.buyerName || "", p.saleDate || ""
+    ]));
+    downloadCsv("inventario_ebay_" + new Date().toISOString().slice(0,10) + ".csv", rows);
+  });
+  el("exportSalesBtn").addEventListener("click", () => {
+    const sold = products.filter(p => p.salePriceUsd != null);
+    const header = ["Producto","Categoría","Comprador","Fecha venta","Precio venta S/","Costo total USD","Ganancia USD","Margen %","Markup %"];
+    const rows = [header].concat(sold.map(p => [
+      p.name, p.category, p.buyerName || "", p.saleDate || "",
+      p.salePricePen != null ? p.salePricePen : (p.salePriceUsd*(p.saleFxRate||fxRate)).toFixed(2),
+      totalCostOf(p).toFixed(2), (profitOf(p)||0).toFixed(2),
+      marginOf(p) != null ? marginOf(p).toFixed(1) : "", markupOf(p) != null ? markupOf(p).toFixed(1) : ""
+    ]));
+    downloadCsv("ventas_ebay_" + new Date().toISOString().slice(0,10) + ".csv", rows);
+  });
 
   // ===== Tabs =====
   function switchTab(tab) {
@@ -1111,8 +1172,11 @@ table.inv-table img.thumb { width: 30px; height: 30px; object-fit: contain; back
     `;
     const body = el("salesTableBody");
     if (!sold.length) { body.innerHTML = ""; el("salesEmptyNote").style.display = "block"; return; }
+    const q = (el("salesSearchInput") ? el("salesSearchInput").value : "").trim().toLowerCase();
+    const filtered = q ? sold.filter(p => p.name.toLowerCase().includes(q) || (p.buyerName||"").toLowerCase().includes(q)) : sold;
+    if (!filtered.length) { body.innerHTML = ""; el("salesEmptyNote").style.display = "block"; el("salesEmptyNote").textContent = "No se encontraron ventas con esa búsqueda."; return; }
     el("salesEmptyNote").style.display = "none";
-    const sorted = sold.slice().sort((a,b)=> (b.saleDate||"").localeCompare(a.saleDate||""));
+    const sorted = filtered.slice().sort((a,b)=> (b.saleDate||"").localeCompare(a.saleDate||""));
     body.innerHTML = sorted.map(p => {
       const img = p.img ? `<img class="thumb" src="${p.img.startsWith('http') ? p.img : 'data:image/jpeg;base64,' + p.img}">` : `<div class="thumb"></div>`;
       const pr = profitOf(p); const mg = marginOf(p); const mk = markupOf(p);
@@ -1236,6 +1300,26 @@ table.inv-table img.thumb { width: 30px; height: 30px; object-fit: contain; back
       data: { labels: catLabels, datasets: [{ data: catLabels.map(c=>byCat[c]), backgroundColor: catLabels.map(c=>CAT_COLORS[c]), borderRadius:3 }] },
       options: { indexAxis:"y", plugins:{legend:{display:false}}, scales:{ x:{grid:{color:"#262b38"}}, y:{grid:{display:false}} } }
     });
+
+    // Precio de venta promedio por categoría
+    const catSales = {};
+    sold.forEach(p => {
+      if (!catSales[p.category]) catSales[p.category] = { count: 0, penTotal: 0, profitTotal: 0 };
+      const pen = p.salePricePen != null ? p.salePricePen : (p.salePriceUsd * (p.saleFxRate || fxRate));
+      catSales[p.category].count++;
+      catSales[p.category].penTotal += pen;
+      catSales[p.category].profitTotal += (profitOf(p) || 0);
+    });
+    const catSaleRows = Object.keys(catSales).sort((a,b) => catSales[b].count - catSales[a].count);
+    el("avgByCategoryList").innerHTML = catSaleRows.length ? catSaleRows.map(c => {
+      const d = catSales[c];
+      const avgPen = d.penTotal / d.count;
+      const avgProfit = d.profitTotal / d.count;
+      return `<div style="display:flex; justify-content:space-between; padding:6px 0; border-bottom:1px solid #262b38; font-size:12.5px;">
+        <span><span class="dot" style="display:inline-block; width:7px; height:7px; border-radius:50%; background:${CAT_COLORS[c]}; margin-right:6px;"></span>${c} <span style="color:var(--text-lo);">(${d.count} ${d.count===1?'venta':'ventas'})</span></span>
+        <span class="mono">${fmtPEN(avgPen)} prom. · <span style="color:#2ec4b6;">+${fmtUSD(avgProfit)}</span></span>
+      </div>`;
+    }).join("") : `<div class="mono" style="color:var(--text-lo);">Aún no hay ventas registradas.</div>`;
 
     // Top 5 más rentables
     const top = sold.slice().sort((a,b)=>(profitOf(b)||0)-(profitOf(a)||0)).slice(0,5);
