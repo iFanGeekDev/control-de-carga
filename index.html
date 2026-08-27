@@ -921,7 +921,9 @@ table.inv-table img.thumb { width: 30px; height: 30px; object-fit: contain; back
     const personalItems = list.filter(p => p.personalUse);
     const personalSpend = personalItems.reduce((s,p) => s + totalCostOf(p), 0);
     const oldStock = list.filter(isOldStock);
-    return { totalInvested, pendingArrival, pendingSend, soldCount: sold.length, profit, total: list.length, personalCount: personalItems.length, personalSpend, oldStockCount: oldStock.length };
+    const stockItems = list.filter(p => p.salePriceUsd == null && !p.personalUse);
+    const stockValueUsd = stockItems.reduce((s,p) => s + totalCostOf(p), 0);
+    return { totalInvested, pendingArrival, pendingSend, soldCount: sold.length, profit, total: list.length, personalCount: personalItems.length, personalSpend, oldStockCount: oldStock.length, stockCount: stockItems.length, stockValueUsd };
   }
 
   function renderStats(list) {
@@ -935,6 +937,7 @@ table.inv-table img.thumb { width: 30px; height: 30px; object-fit: contain; back
       <div class="stat-card"><div class="label">Ganancia realizada</div><div class="value dual teal">${fmtDual(s.profit)}</div></div>
       <div class="stat-card"><div class="label">Gastado en uso personal (${s.personalCount})</div><div class="value" style="color:#6b21a8;">${fmtUSD(s.personalSpend)}</div></div>
       <div class="stat-card"><div class="label">Stock viejo (${OLD_STOCK_DAYS}+ días)</div><div class="value accent">${s.oldStockCount}</div></div>
+      <div class="stat-card"><div class="label">En stock / pendiente de vender (${s.stockCount})</div><div class="value dual" style="color:#2563eb;">${fmtDual(s.stockValueUsd)}</div></div>
     `;
   }
 
