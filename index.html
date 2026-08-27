@@ -1277,6 +1277,8 @@ table.inv-table img.thumb { width: 30px; height: 30px; object-fit: contain; back
   // ===== Seguimiento tab (diario / semanal / quincenal) =====
   let trackMode = "day";
   let trackingChart = null;
+  // Bloques de 14 días corridos, anclados al día en que se activó el seguimiento (no al calendario)
+  const QUINCENA_EPOCH = new Date(new Date().toISOString().slice(0,10) + "T00:00:00");
 
   function periodBucket(dateStr, mode) {
     const d = new Date(dateStr + "T00:00:00");
@@ -1292,12 +1294,16 @@ table.inv-table img.thumb { width: 30px; height: 30px; object-fit: contain; back
       const label = `${monday.getDate()}-${sunday.getDate()} ${sunday.toLocaleDateString("es-PE",{month:"short"})}`;
       return { key, label };
     }
-    // quincena
-    const day = d.getDate();
-    const half = day <= 15 ? 1 : 2;
-    const monthLabel = d.toLocaleDateString("es-PE", {month:"short", year:"2-digit"});
-    const key = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-Q${half}`;
-    const label = half === 1 ? `1-15 ${monthLabel}` : `16-fin ${monthLabel}`;
+    // quincena = bloque de 14 días corridos desde QUINCENA_EPOCH
+    const diffDays = Math.floor((d - QUINCENA_EPOCH) / 86400000);
+    const idx = Math.floor(diffDays / 14);
+    const start = new Date(QUINCENA_EPOCH); start.setDate(start.getDate() + idx*14);
+    const end = new Date(start); end.setDate(start.getDate() + 13);
+    const key = "Q" + idx;
+    const sameMonth = start.getMonth() === end.getMonth();
+    const label = sameMonth
+      ? `${start.getDate()}-${end.getDate()} ${end.toLocaleDateString("es-PE",{month:"short"})}`
+      : `${start.getDate()} ${start.toLocaleDateString("es-PE",{month:"short"})} - ${end.getDate()} ${end.toLocaleDateString("es-PE",{month:"short"})}`;
     return { key, label };
   }
 
