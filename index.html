@@ -384,6 +384,7 @@ table.inv-table img.thumb { width: 30px; height: 30px; object-fit: contain; back
       <button class="tab-btn" id="tabBtnVentas">💵 Ventas</button>
       <button class="tab-btn" id="tabBtnTracking">📅 Seguimiento</button>
       <button class="tab-btn" id="tabBtnStats">📊 Estadísticas</button>
+      <button class="tab-btn" id="tabBtnSalary">💰 Sueldo</button>
     </div>
   </div>
 
@@ -521,6 +522,62 @@ table.inv-table img.thumb { width: 30px; height: 30px; object-fit: contain; back
         <h3>Resumen del negocio</h3>
         <div id="businessSummary" class="mono" style="font-size:12.5px; line-height:1.9; color:var(--text-lo);"></div>
       </div>
+    </div>
+  </div>
+
+  <div id="viewSalary" style="display:none;">
+    <div class="dash-grid" id="salaryStatsGrid"></div>
+    <div class="product-wrap" style="padding-top:0;">
+      <div class="chart-card" style="margin-bottom:14px;">
+        <h3>Sueldo mensual fijo</h3>
+        <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+          <div class="field" style="margin-bottom:0; flex:1; min-width:180px;">
+            <label>Monto (S/ por mes)</label>
+            <input type="number" step="0.01" id="salaryAmountInput" placeholder="Ej. 1500.00">
+          </div>
+          <button class="btn btn-primary" id="saveSalaryAmountBtn" style="margin-top:18px;">Guardar</button>
+        </div>
+        <div class="mono" style="font-size:11px; color:var(--text-lo); margin-top:8px;">Este es el monto de referencia que se pre-llena cada vez que registras un retiro — puedes registrar un monto distinto en cada retiro si hace falta.</div>
+      </div>
+      <div class="toolbar" style="position:static; margin-top:0;">
+        <div style="font-weight:600;">Historial de retiros de sueldo</div>
+        <div class="spacer"></div>
+        <button class="btn btn-primary" id="addSalaryBtn">+ Registrar retiro</button>
+      </div>
+      <div class="table-wrap">
+        <table class="inv-table">
+          <thead>
+            <tr><th>Fecha</th><th>Monto</th><th>Notas</th><th></th></tr>
+          </thead>
+          <tbody id="salaryTableBody"></tbody>
+        </table>
+      </div>
+      <div id="salaryEmptyNote" class="empty-note" style="display:none;">Aún no registras retiros de sueldo.</div>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="salaryModalOverlay">
+    <div class="modal-box" style="max-width:420px;">
+      <h2><span>Registrar retiro de sueldo</span> <span class="btn btn-ghost" id="closeSalaryModalBtn" style="padding:4px 10px;">✕</span></h2>
+      <form id="salaryForm">
+        <div class="field">
+          <label>Monto (S/)</label>
+          <input type="number" step="0.01" id="sal_amount" required>
+        </div>
+        <div class="field">
+          <label>Fecha</label>
+          <input type="date" id="sal_date" required>
+        </div>
+        <div class="field">
+          <label>Notas (opcional)</label>
+          <input type="text" id="sal_notes" placeholder="Ej. Sueldo de agosto">
+        </div>
+        <div class="modal-actions">
+          <div style="flex:1;"></div>
+          <button type="button" class="btn btn-ghost" id="cancelSalaryBtn">Cancelar</button>
+          <button type="submit" class="btn btn-primary">Guardar</button>
+        </div>
+      </form>
     </div>
   </div>
 
@@ -711,21 +768,30 @@ table.inv-table img.thumb { width: 30px; height: 30px; object-fit: contain; back
     "Content-Type": "application/json"
   });
 
+  let salaryLog = [];
+  let salarySettings = { id: 999999, recordType: "settings", monthlySalaryPen: 0 };
+
   async function loadProducts() {
     try {
       const res = await fetch(`${SUPABASE_URL}/rest/v1/products?select=data`, { headers: sbHeaders() });
       if (res.ok) {
         const rows = await res.json();
-        if (rows.length) { products = rows.map(r => r.data); return; }
+        if (rows.length) {
+          products = rows.filter(r => !r.data.recordType).map(r => r.data);
+          salaryLog = rows.filter(r => r.data.recordType === "salary").map(r => r.data);
+          const settingsRow = rows.find(r => r.data.recordType === "settings");
+          if (settingsRow) salarySettings = settingsRow.data;
+          return;
+        }
       }
     } catch (e) { console.error("load error", e); }
     products = SEED.slice();
     await persist();
   }
 
-  async function persist() {
+  async function saveRecords(records) {
     try {
-      const rows = products.map(p => ({ id: p.id, data: p }));
+      const rows = records.map(r => ({ id: r.id, data: r }));
       await fetch(`${SUPABASE_URL}/rest/v1/products`, {
         method: "POST",
         headers: { ...sbHeaders(), Prefer: "resolution=merge-duplicates" },
@@ -734,7 +800,11 @@ table.inv-table img.thumb { width: 30px; height: 30px; object-fit: contain; back
     } catch (e) { console.error("persist error", e); }
   }
 
-  async function deleteProductRemote(id) {
+  async function persist() { await saveRecords(products); }
+  async function persistSalaryLog() { await saveRecords(salaryLog); }
+  async function persistSettings() { await saveRecords([salarySettings]); }
+
+  async function deleteRecordRemote(id) {
     try {
       await fetch(`${SUPABASE_URL}/rest/v1/products?id=eq.${id}`, { method: "DELETE", headers: sbHeaders() });
     } catch (e) { console.error("delete error", e); }
@@ -1129,7 +1199,7 @@ table.inv-table img.thumb { width: 30px; height: 30px; object-fit: contain; back
   el("deleteBtn").addEventListener("click", async () => {
     if (!editingId) return;
     if (!confirm("¿Eliminar este producto del inventario?")) return;
-    await deleteProductRemote(editingId);
+    await deleteRecordRemote(editingId);
     products = products.filter(p => p.id !== editingId);
     await persist();
     closeModal();
@@ -1219,18 +1289,20 @@ table.inv-table img.thumb { width: 30px; height: 30px; object-fit: contain; back
 
   // ===== Tabs =====
   function switchTab(tab) {
-    ["Inventario","Ventas","Tracking","Stats"].forEach(t => {
+    ["Inventario","Ventas","Tracking","Stats","Salary"].forEach(t => {
       el("view"+t).style.display = (t===tab) ? "" : "none";
       el("tabBtn"+t).classList.toggle("active", t===tab);
     });
     if (tab === "Ventas") renderVentas();
     if (tab === "Tracking") renderTracking();
     if (tab === "Stats") renderEstadisticas();
+    if (tab === "Salary") renderSalary();
   }
   el("tabBtnInventario").addEventListener("click", () => switchTab("Inventario"));
   el("tabBtnVentas").addEventListener("click", () => switchTab("Ventas"));
   el("tabBtnTracking").addEventListener("click", () => switchTab("Tracking"));
   el("tabBtnStats").addEventListener("click", () => switchTab("Stats"));
+  el("tabBtnSalary").addEventListener("click", () => switchTab("Salary"));
 
   // ===== Ventas tab =====
   function renderVentas() {
@@ -1516,6 +1588,70 @@ table.inv-table img.thumb { width: 30px; height: 30px; object-fit: contain; back
       · Llevas ${sold.length} ventas registradas, con un margen global de ${revenue>0?((profit/revenue)*100).toFixed(1):'0.0'}% (sobre venta) y un markup de ${cost>0?((profit/cost)*100).toFixed(1):'0.0'}% (sobre costo).
     `;
   }
+
+  // ===== Sueldo tab =====
+  function renderSalary() {
+    const grossProfit = products.filter(p => p.salePriceUsd != null).reduce((s,p) => s + (profitOf(p)||0), 0);
+    const grossProfitPen = grossProfit * fxRate;
+    const totalWithdrawn = salaryLog.reduce((s,r) => s + Number(r.amountPen||0), 0);
+    const realNetPen = grossProfitPen - totalWithdrawn;
+    el("salaryStatsGrid").innerHTML = `
+      <div class="stat-card"><div class="label">Ganancia bruta acumulada</div><div class="value">${fmtPEN(grossProfitPen)}</div></div>
+      <div class="stat-card"><div class="label">Sueldo retirado (total)</div><div class="value" style="color:#2563eb;">${fmtPEN(totalWithdrawn)}</div></div>
+      <div class="stat-card"><div class="label">Ganancia neta real (queda en el negocio)</div><div class="value teal">${fmtPEN(realNetPen)}</div></div>
+    `;
+    el("salaryAmountInput").value = salarySettings.monthlySalaryPen || "";
+
+    const body = el("salaryTableBody");
+    if (!salaryLog.length) { body.innerHTML = ""; el("salaryEmptyNote").style.display = "block"; return; }
+    el("salaryEmptyNote").style.display = "none";
+    const sorted = salaryLog.slice().sort((a,b) => (b.date||"").localeCompare(a.date||""));
+    body.innerHTML = sorted.map(r => `
+      <tr>
+        <td>${r.date || "-"}</td>
+        <td class="mono">${fmtPEN(r.amountPen)}</td>
+        <td>${escapeHtml(r.notes || "")}</td>
+        <td><button class="unarrive-btn" data-del-salary="${r.id}">✕ eliminar</button></td>
+      </tr>`).join("");
+    body.querySelectorAll("[data-del-salary]").forEach(b => b.addEventListener("click", async (e) => {
+      const id = Number(e.target.dataset.delSalary);
+      if (!confirm("¿Eliminar este retiro de sueldo?")) return;
+      await deleteRecordRemote(id);
+      salaryLog = salaryLog.filter(r => r.id !== id);
+      renderSalary();
+    }));
+  }
+
+  el("saveSalaryAmountBtn").addEventListener("click", async () => {
+    salarySettings.monthlySalaryPen = parseFloat(el("salaryAmountInput").value) || 0;
+    await persistSettings();
+  });
+
+  function openSalaryModal() {
+    el("sal_amount").value = salarySettings.monthlySalaryPen || "";
+    el("sal_date").value = new Date().toISOString().slice(0,10);
+    el("sal_notes").value = "";
+    el("salaryModalOverlay").classList.add("open");
+  }
+  function closeSalaryModal() { el("salaryModalOverlay").classList.remove("open"); }
+  el("addSalaryBtn").addEventListener("click", openSalaryModal);
+  el("closeSalaryModalBtn").addEventListener("click", closeSalaryModal);
+  el("cancelSalaryBtn").addEventListener("click", closeSalaryModal);
+  el("salaryModalOverlay").addEventListener("click", (e) => { if (e.target.id === "salaryModalOverlay") closeSalaryModal(); });
+  el("salaryForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const entry = {
+      id: 900000 + Date.now() % 100000,
+      recordType: "salary",
+      amountPen: parseFloat(el("sal_amount").value) || 0,
+      date: el("sal_date").value,
+      notes: el("sal_notes").value.trim()
+    };
+    salaryLog.push(entry);
+    await persistSalaryLog();
+    closeSalaryModal();
+    renderSalary();
+  });
 
   // ===== init =====
   (async function init() {
