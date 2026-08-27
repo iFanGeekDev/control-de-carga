@@ -497,6 +497,21 @@ table.inv-table img.thumb { width: 30px; height: 30px; object-fit: contain; back
     </div>
   </div>
 
+  <div class="modal-overlay" id="trackingDetailOverlay">
+    <div class="modal-box" style="max-width:640px;">
+      <h2><span id="trackingDetailTitle">Detalle del período</span> <span class="btn btn-ghost" id="closeTrackingDetailBtn" style="padding:4px 10px;">✕</span></h2>
+      <div class="table-wrap">
+        <table class="inv-table">
+          <thead>
+            <tr><th></th><th>Producto</th><th>Comprador</th><th>Fecha</th><th>Precio venta</th><th>Ganancia</th></tr>
+          </thead>
+          <tbody id="trackingDetailBody"></tbody>
+        </table>
+      </div>
+      <div class="mono" style="font-size:11px; color:#8a8168; margin-top:10px;">Toca cualquier producto para abrir su ficha completa.</div>
+    </div>
+  </div>
+
   <div id="viewStats" style="display:none;">
     <div class="dash-grid" id="statsStatsGrid"></div>
     <div class="charts-grid">
@@ -1479,13 +1494,14 @@ table.inv-table img.thumb { width: 30px; height: 30px; object-fit: contain; back
     const buckets = {};
     sold.forEach(p => {
       const b = periodBucket(p.saleDate, trackMode);
-      if (!buckets[b.key]) buckets[b.key] = { label: b.label, count: 0, penTotal: 0, usdTotal: 0, profitTotal: 0, marginSum: 0 };
+      if (!buckets[b.key]) buckets[b.key] = { label: b.label, count: 0, penTotal: 0, usdTotal: 0, profitTotal: 0, marginSum: 0, products: [] };
       const pen = p.salePricePen != null ? p.salePricePen : (p.salePriceUsd * (p.saleFxRate || fxRate));
       buckets[b.key].count++;
       buckets[b.key].penTotal += pen;
       buckets[b.key].usdTotal += Number(p.salePriceUsd||0);
       buckets[b.key].profitTotal += (profitOf(p) || 0);
       buckets[b.key].marginSum += (marginOf(p) || 0);
+      buckets[b.key].products.push(p);
     });
     const keys = Object.keys(buckets).sort().reverse();
 
@@ -1498,7 +1514,7 @@ table.inv-table img.thumb { width: 30px; height: 30px; object-fit: contain; back
       <div class="stat-card"><div class="label">Vendido hoy</div><div class="value dual teal">${fmtDual(todayBucket ? todayBucket.usdTotal : 0)}</div></div>
       <div class="stat-card"><div class="label">Vendido esta semana</div><div class="value dual teal">${fmtDual(weekBucket ? weekBucket.usdTotal : 0)}</div></div>
       <div class="stat-card"><div class="label">Vendido esta quincena</div><div class="value dual teal">${fmtDual(quincenaBucket ? quincenaBucket.usdTotal : 0)}</div></div>
-      <div class="stat-card"><div class="label">Ganancia hoy</div><div class="value" style="color:#2ec4b6;">${fmtUSD(todayBucket ? todayBucket.profitTotal : 0)}</div></div>
+      <div class="stat-card"><div class="label">Ganancia hoy</div><div class="value dual" style="color:#2ec4b6;">${fmtDual(todayBucket ? todayBucket.profitTotal : 0)}</div></div>
     `;
 
     const titles = { day: "Ingresos por día", week: "Ingresos por semana", quincena: "Ingresos por quincena" };
@@ -1521,10 +1537,11 @@ table.inv-table img.thumb { width: 30px; height: 30px; object-fit: contain; back
     const body = el("trackingTableBody");
     if (!keys.length) { body.innerHTML = ""; el("trackingEmptyNote").style.display = "block"; return; }
     el("trackingEmptyNote").style.display = "none";
+    window.__trackingBuckets = buckets;
     body.innerHTML = keys.map(k => {
       const b = buckets[k];
       const avgMargin = b.count ? b.marginSum / b.count : 0;
-      return `<tr>
+      return `<tr data-bucket-key="${k}" style="cursor:pointer;">
         <td>${b.label}</td>
         <td>${b.count}</td>
         <td class="mono">${fmtDual(b.usdTotal)}</td>
@@ -1532,7 +1549,35 @@ table.inv-table img.thumb { width: 30px; height: 30px; object-fit: contain; back
         <td class="mono">${avgMargin.toFixed(1)}%</td>
       </tr>`;
     }).join("");
+    body.querySelectorAll("tr").forEach(r => r.addEventListener("click", () => openTrackingDetail(r.dataset.bucketKey)));
   }
+
+  function openTrackingDetail(key) {
+    const b = window.__trackingBuckets[key];
+    if (!b) return;
+    el("trackingDetailTitle").textContent = `Ventas · ${b.label}`;
+    const sorted = b.products.slice().sort((a,x) => (x.saleDate||"").localeCompare(a.saleDate||""));
+    el("trackingDetailBody").innerHTML = sorted.map(p => {
+      const img = p.img ? `<img class="thumb" src="${p.img.startsWith('http') ? p.img : 'data:image/jpeg;base64,' + p.img}">` : `<div class="thumb"></div>`;
+      const pr = profitOf(p);
+      return `<tr data-id="${p.id}" style="cursor:pointer;">
+        <td>${img}</td>
+        <td>${escapeHtml(p.name)}</td>
+        <td>${escapeHtml(p.buyerName || "-")}</td>
+        <td>${p.saleDate || "-"}</td>
+        <td class="mono">${fmtPEN(p.salePricePen != null ? p.salePricePen : (p.salePriceUsd*(p.saleFxRate||fxRate)))}</td>
+        <td class="mono" style="color:${pr>=0?'#2ec4b6':'#ff6b35'};">${fmtDual(pr)}</td>
+      </tr>`;
+    }).join("");
+    el("trackingDetailBody").querySelectorAll("tr").forEach(r => r.addEventListener("click", () => {
+      closeTrackingDetail();
+      openModal(Number(r.dataset.id));
+    }));
+    el("trackingDetailOverlay").classList.add("open");
+  }
+  function closeTrackingDetail() { el("trackingDetailOverlay").classList.remove("open"); }
+  el("closeTrackingDetailBtn").addEventListener("click", closeTrackingDetail);
+  el("trackingDetailOverlay").addEventListener("click", (e) => { if (e.target.id === "trackingDetailOverlay") closeTrackingDetail(); });
   el("trackDayBtn").addEventListener("click", () => { trackMode="day"; ["Day","Week","Quincena"].forEach(m=>el("track"+m+"Btn").classList.toggle("active", m==="Day")); renderTracking(); });
   el("trackWeekBtn").addEventListener("click", () => { trackMode="week"; ["Day","Week","Quincena"].forEach(m=>el("track"+m+"Btn").classList.toggle("active", m==="Week")); renderTracking(); });
   el("trackQuincenaBtn").addEventListener("click", () => { trackMode="quincena"; ["Day","Week","Quincena"].forEach(m=>el("track"+m+"Btn").classList.toggle("active", m==="Quincena")); renderTracking(); });
