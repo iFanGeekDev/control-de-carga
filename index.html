@@ -256,6 +256,17 @@
   padding: 5px 0; margin-top: 2px; cursor: pointer; letter-spacing: 0.02em;
 }
 .sell-btn:hover { filter: brightness(1.1); }
+.arrive-btn {
+  font-family: 'IBM Plex Mono', monospace; font-size: 10px; font-weight: 600;
+  background: #0f766e0; border: 1px solid #2563eb; color: #2563eb; background: transparent;
+  border-radius: 2px; padding: 5px 0; margin-top: 2px; cursor: pointer; letter-spacing: 0.02em;
+}
+.arrive-btn:hover { background: #2563eb22; }
+.unarrive-btn {
+  font-family: 'IBM Plex Mono', monospace; font-size: 9.5px;
+  background: transparent; border: none; color: #8a8168; cursor: pointer;
+  text-decoration: underline; padding: 2px 0;
+}
 .pcard .photo-box {
   background: var(--paper-2);
   height: 118px;
@@ -872,6 +883,9 @@ table.inv-table img.thumb { width: 30px; height: 30px; object-fit: contain; back
       const img = p.img ? `<img src="${p.img.startsWith('http') ? p.img : 'data:image/jpeg;base64,' + p.img}">` : `<span class="mono" style="font-size:10px;color:#7a7360;">SIN FOTO</span>`;
       const personalBadge = p.personalUse ? `<div class="stamp" style="left:8px; right:auto; color:#6b21a8; border-color:#6b21a8;">MÍO</div>` : "";
       const sellBtn = (!isSold && !p.personalUse) ? `<button class="sell-btn" data-sell-id="${p.id}">💰 Marcar vendido</button>` : "";
+      const arriveBtn = !p.arrivalDate
+        ? `<button class="arrive-btn" data-arrive-id="${p.id}">📦 Marcar llegada (hoy)</button>`
+        : `<button class="unarrive-btn" data-unarrive-id="${p.id}">↩ deshacer llegada</button>`;
       const oldBadge = isOldStock(p) ? `<div class="prow" style="color:#d97706;"><span>⏳ ${daysSince(p.arrivalDate)} días en stock</span></div>` : "";
       return `<div class="pcard ${isSold ? 'is-sold' : ''}" data-id="${p.id}">
         <div class="stamp ${st.cls}">${st.label}</div>
@@ -883,17 +897,26 @@ table.inv-table img.thumb { width: 30px; height: 30px; object-fit: contain; back
           <div class="prow"><span class="cost">${fmtUSD(p.costUsd)}</span><span style="color:#6b6152;">${p.location}</span></div>
           <div class="prow" style="opacity:0.75;"><span>+ envío ${fmtUSD(shippingCostOf(p))}</span></div>
           ${oldBadge}
+          ${arriveBtn}
           ${sellBtn}
         </div>
       </div>`;
     }).join("");
     wrap.querySelectorAll(".pcard").forEach(c => c.addEventListener("click", (e) => {
-      if (e.target.closest(".sell-btn")) return;
+      if (e.target.closest(".sell-btn") || e.target.closest(".arrive-btn") || e.target.closest(".unarrive-btn")) return;
       openModal(Number(c.dataset.id));
     }));
     wrap.querySelectorAll(".sell-btn").forEach(b => b.addEventListener("click", (e) => {
       e.stopPropagation();
       openSaleModal(Number(b.dataset.sellId));
+    }));
+    wrap.querySelectorAll(".arrive-btn").forEach(b => b.addEventListener("click", (e) => {
+      e.stopPropagation();
+      markArrival(Number(b.dataset.arriveId), true);
+    }));
+    wrap.querySelectorAll(".unarrive-btn").forEach(b => b.addEventListener("click", (e) => {
+      e.stopPropagation();
+      markArrival(Number(b.dataset.unarriveId), false);
     }));
   }
 
@@ -905,6 +928,9 @@ table.inv-table img.thumb { width: 30px; height: 30px; object-fit: contain; back
       const img = p.img ? `<img class="thumb" src="${p.img.startsWith('http') ? p.img : 'data:image/jpeg;base64,' + p.img}">` : `<div class="thumb"></div>`;
       const isSold = p.salePriceUsd != null;
       const sellCell = (!isSold && !p.personalUse) ? `<button class="sell-btn" data-sell-id="${p.id}" style="padding:4px 8px;">💰 Vender</button>` : (isSold ? '<span class="mono" style="color:#6b21a8;">✓ Vendido</span>' : '');
+      const arrivalCell = p.arrivalDate
+        ? `${p.arrivalDate}<br><button class="unarrive-btn" data-unarrive-id="${p.id}">↩ deshacer</button>`
+        : `Pendiente<br><button class="arrive-btn" data-arrive-id="${p.id}" style="padding:3px 6px;">📦 Marcar llegada</button>`;
       return `<tr data-id="${p.id}" ${isSold ? 'style="background:#241a2e;"' : ''}>
         <td>${img}</td>
         <td>${escapeHtml(p.name)}</td>
@@ -912,7 +938,7 @@ table.inv-table img.thumb { width: 30px; height: 30px; object-fit: contain; back
         <td class="mono">${fmtUSD(p.costUsd)}</td>
         <td class="mono">${fmtUSD(shippingCostOf(p))}</td>
         <td class="mono">${p.tracking || "-"}</td>
-        <td>${p.arrivalDate || "Pendiente"}</td>
+        <td>${arrivalCell}</td>
         <td>${p.sentToDanna ? "Sí" : "No"}</td>
         <td>${p.location}</td>
         <td>${p.personalUse ? '<span style="color:#a855f7;">Mío</span>' : 'Revender'}</td>
@@ -921,13 +947,37 @@ table.inv-table img.thumb { width: 30px; height: 30px; object-fit: contain; back
       </tr>`;
     }).join("");
     body.querySelectorAll("tr").forEach(r => r.addEventListener("click", (e) => {
-      if (e.target.closest(".sell-btn")) return;
+      if (e.target.closest(".sell-btn") || e.target.closest(".arrive-btn") || e.target.closest(".unarrive-btn")) return;
       openModal(Number(r.dataset.id));
     }));
     body.querySelectorAll(".sell-btn").forEach(b => b.addEventListener("click", (e) => {
       e.stopPropagation();
       openSaleModal(Number(b.dataset.sellId));
     }));
+    body.querySelectorAll(".arrive-btn").forEach(b => b.addEventListener("click", (e) => {
+      e.stopPropagation();
+      markArrival(Number(b.dataset.arriveId), true);
+    }));
+    body.querySelectorAll(".unarrive-btn").forEach(b => b.addEventListener("click", (e) => {
+      e.stopPropagation();
+      markArrival(Number(b.dataset.unarriveId), false);
+    }));
+  }
+
+  async function markArrival(id, arrived) {
+    const idx = products.findIndex(p => p.id === id);
+    if (idx === -1) return;
+    if (arrived) {
+      products[idx].arrivalDate = new Date().toISOString().slice(0,10);
+      if (products[idx].location === "Miami" || !products[idx].location) {
+        // se queda en Miami hasta que se envíe a Danna; el estado ya refleja "llegó"
+      }
+    } else {
+      products[idx].arrivalDate = null;
+      products[idx].location = "Miami";
+    }
+    await persist();
+    renderAll();
   }
 
   function escapeHtml(s) {
