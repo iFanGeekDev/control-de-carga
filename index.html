@@ -370,6 +370,7 @@ table.inv-table img.thumb { width: 30px; height: 30px; object-fit: contain; back
     <div class="tab-nav">
       <button class="tab-btn active" id="tabBtnInventario">📦 Inventario</button>
       <button class="tab-btn" id="tabBtnVentas">💵 Ventas</button>
+      <button class="tab-btn" id="tabBtnTracking">📅 Seguimiento</button>
       <button class="tab-btn" id="tabBtnStats">📊 Estadísticas</button>
     </div>
   </div>
@@ -454,6 +455,32 @@ table.inv-table img.thumb { width: 30px; height: 30px; object-fit: contain; back
         </table>
       </div>
       <div id="salesEmptyNote" class="empty-note" style="display:none;">Aún no registras ventas.</div>
+    </div>
+  </div>
+
+  <div id="viewTracking" style="display:none;">
+    <div class="dash-grid" id="trackingStatsGrid"></div>
+    <div class="product-wrap" style="padding-top:0;">
+      <div class="toolbar" style="position:static; margin-top:0;">
+        <div style="font-weight:600;">Ventas agrupadas por período</div>
+        <div class="spacer"></div>
+        <button class="btn btn-ghost active" id="trackDayBtn">Diario</button>
+        <button class="btn btn-ghost" id="trackWeekBtn">Semanal</button>
+        <button class="btn btn-ghost" id="trackQuincenaBtn">Quincenal</button>
+      </div>
+      <div class="chart-card" style="margin-bottom:14px;">
+        <h3 id="trackChartTitle">Ingresos por día</h3>
+        <canvas id="chartTracking"></canvas>
+      </div>
+      <div class="table-wrap">
+        <table class="inv-table">
+          <thead>
+            <tr><th>Período</th><th>Unidades vendidas</th><th>Ingresos</th><th>Ganancia</th><th>Margen prom.</th></tr>
+          </thead>
+          <tbody id="trackingTableBody"></tbody>
+        </table>
+      </div>
+      <div id="trackingEmptyNote" class="empty-note" style="display:none;">Aún no hay ventas registradas — en cuanto registres tu primera venta desde hoy, va a aparecer aquí agrupada por período.</div>
     </div>
   </div>
 
@@ -1141,15 +1168,17 @@ table.inv-table img.thumb { width: 30px; height: 30px; object-fit: contain; back
 
   // ===== Tabs =====
   function switchTab(tab) {
-    ["Inventario","Ventas","Stats"].forEach(t => {
+    ["Inventario","Ventas","Tracking","Stats"].forEach(t => {
       el("view"+t).style.display = (t===tab) ? "" : "none";
       el("tabBtn"+t).classList.toggle("active", t===tab);
     });
     if (tab === "Ventas") renderVentas();
+    if (tab === "Tracking") renderTracking();
     if (tab === "Stats") renderEstadisticas();
   }
   el("tabBtnInventario").addEventListener("click", () => switchTab("Inventario"));
   el("tabBtnVentas").addEventListener("click", () => switchTab("Ventas"));
+  el("tabBtnTracking").addEventListener("click", () => switchTab("Tracking"));
   el("tabBtnStats").addEventListener("click", () => switchTab("Stats"));
 
   // ===== Ventas tab =====
@@ -1244,6 +1273,96 @@ table.inv-table img.thumb { width: 30px; height: 30px; object-fit: contain; back
     renderVentas();
     renderAll();
   });
+
+  // ===== Seguimiento tab (diario / semanal / quincenal) =====
+  let trackMode = "day";
+  let trackingChart = null;
+
+  function periodBucket(dateStr, mode) {
+    const d = new Date(dateStr + "T00:00:00");
+    if (mode === "day") {
+      return { key: dateStr, label: d.toLocaleDateString("es-PE", {day:"2-digit", month:"short"}) };
+    }
+    if (mode === "week") {
+      const dow = d.getDay();
+      const diffToMonday = (dow === 0 ? -6 : 1 - dow);
+      const monday = new Date(d); monday.setDate(d.getDate() + diffToMonday);
+      const sunday = new Date(monday); sunday.setDate(monday.getDate() + 6);
+      const key = monday.toISOString().slice(0,10);
+      const label = `${monday.getDate()}-${sunday.getDate()} ${sunday.toLocaleDateString("es-PE",{month:"short"})}`;
+      return { key, label };
+    }
+    // quincena
+    const day = d.getDate();
+    const half = day <= 15 ? 1 : 2;
+    const monthLabel = d.toLocaleDateString("es-PE", {month:"short", year:"2-digit"});
+    const key = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-Q${half}`;
+    const label = half === 1 ? `1-15 ${monthLabel}` : `16-fin ${monthLabel}`;
+    return { key, label };
+  }
+
+  function renderTracking() {
+    const sold = products.filter(p => p.salePriceUsd != null && p.saleDate);
+    const buckets = {};
+    sold.forEach(p => {
+      const b = periodBucket(p.saleDate, trackMode);
+      if (!buckets[b.key]) buckets[b.key] = { label: b.label, count: 0, penTotal: 0, usdTotal: 0, profitTotal: 0, marginSum: 0 };
+      const pen = p.salePricePen != null ? p.salePricePen : (p.salePriceUsd * (p.saleFxRate || fxRate));
+      buckets[b.key].count++;
+      buckets[b.key].penTotal += pen;
+      buckets[b.key].usdTotal += Number(p.salePriceUsd||0);
+      buckets[b.key].profitTotal += (profitOf(p) || 0);
+      buckets[b.key].marginSum += (marginOf(p) || 0);
+    });
+    const keys = Object.keys(buckets).sort().reverse();
+
+    // stat cards: totales de hoy, esta semana, esta quincena
+    const today = new Date().toISOString().slice(0,10);
+    const todayBucket = buckets[periodBucket(today, "day").key];
+    const weekBucket = buckets[periodBucket(today, "week").key];
+    const quincenaBucket = buckets[periodBucket(today, "quincena").key];
+    el("trackingStatsGrid").innerHTML = `
+      <div class="stat-card"><div class="label">Vendido hoy</div><div class="value dual teal">${fmtDual(todayBucket ? todayBucket.usdTotal : 0)}</div></div>
+      <div class="stat-card"><div class="label">Vendido esta semana</div><div class="value dual teal">${fmtDual(weekBucket ? weekBucket.usdTotal : 0)}</div></div>
+      <div class="stat-card"><div class="label">Vendido esta quincena</div><div class="value dual teal">${fmtDual(quincenaBucket ? quincenaBucket.usdTotal : 0)}</div></div>
+      <div class="stat-card"><div class="label">Ganancia hoy</div><div class="value" style="color:#2ec4b6;">${fmtUSD(todayBucket ? todayBucket.profitTotal : 0)}</div></div>
+    `;
+
+    const titles = { day: "Ingresos por día", week: "Ingresos por semana", quincena: "Ingresos por quincena" };
+    el("trackChartTitle").textContent = titles[trackMode];
+
+    const chartKeys = keys.slice(0, 14).reverse();
+    const ctx = document.getElementById("chartTracking").getContext("2d");
+    if (trackingChart) trackingChart.destroy();
+    Chart.defaults.color = "#b9c0cb";
+    Chart.defaults.font.family = "'IBM Plex Sans', sans-serif";
+    trackingChart = new Chart(ctx, {
+      type: "bar",
+      data: { labels: chartKeys.map(k=>buckets[k].label), datasets: [
+        { label: "Ingresos (USD)", data: chartKeys.map(k=>buckets[k].usdTotal), backgroundColor: "#2EC4B6", borderRadius: 3 },
+        { label: "Ganancia (USD)", data: chartKeys.map(k=>buckets[k].profitTotal), backgroundColor: "#FF6B35", borderRadius: 3 }
+      ]},
+      options: { plugins:{legend:{display:true, labels:{boxWidth:10}}}, scales:{ x:{grid:{display:false}}, y:{grid:{color:"#262b38"}} } }
+    });
+
+    const body = el("trackingTableBody");
+    if (!keys.length) { body.innerHTML = ""; el("trackingEmptyNote").style.display = "block"; return; }
+    el("trackingEmptyNote").style.display = "none";
+    body.innerHTML = keys.map(k => {
+      const b = buckets[k];
+      const avgMargin = b.count ? b.marginSum / b.count : 0;
+      return `<tr>
+        <td>${b.label}</td>
+        <td>${b.count}</td>
+        <td class="mono">${fmtDual(b.usdTotal)}</td>
+        <td class="mono" style="color:#2ec4b6;">${fmtDual(b.profitTotal)}</td>
+        <td class="mono">${avgMargin.toFixed(1)}%</td>
+      </tr>`;
+    }).join("");
+  }
+  el("trackDayBtn").addEventListener("click", () => { trackMode="day"; ["Day","Week","Quincena"].forEach(m=>el("track"+m+"Btn").classList.toggle("active", m==="Day")); renderTracking(); });
+  el("trackWeekBtn").addEventListener("click", () => { trackMode="week"; ["Day","Week","Quincena"].forEach(m=>el("track"+m+"Btn").classList.toggle("active", m==="Week")); renderTracking(); });
+  el("trackQuincenaBtn").addEventListener("click", () => { trackMode="quincena"; ["Day","Week","Quincena"].forEach(m=>el("track"+m+"Btn").classList.toggle("active", m==="Quincena")); renderTracking(); });
 
   // ===== Estadísticas tab =====
   let salesMonthChart = null, profitCatChart = null;
