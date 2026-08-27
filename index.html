@@ -529,39 +529,72 @@ table.inv-table img.thumb { width: 30px; height: 30px; object-fit: contain; back
     <div class="dash-grid" id="salaryStatsGrid"></div>
     <div class="product-wrap" style="padding-top:0;">
       <div class="chart-card" style="margin-bottom:14px;">
-        <h3>Sueldo mensual fijo</h3>
-        <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
-          <div class="field" style="margin-bottom:0; flex:1; min-width:180px;">
-            <label>Monto (S/ por mes)</label>
-            <input type="number" step="0.01" id="salaryAmountInput" placeholder="Ej. 1500.00">
-          </div>
-          <button class="btn btn-primary" id="saveSalaryAmountBtn" style="margin-top:18px;">Guardar</button>
-        </div>
-        <div class="mono" style="font-size:11px; color:var(--text-lo); margin-top:8px;">Este es el monto de referencia que se pre-llena cada vez que registras un retiro — puedes registrar un monto distinto en cada retiro si hace falta.</div>
+        <h3>Personas con pago fijo mensual</h3>
+        <div id="payeeList" style="display:flex; flex-direction:column; gap:8px; margin-bottom:12px;"></div>
+        <button class="btn btn-ghost" id="addPayeeBtn">+ Agregar persona</button>
       </div>
       <div class="toolbar" style="position:static; margin-top:0;">
-        <div style="font-weight:600;">Historial de retiros de sueldo</div>
+        <div style="font-weight:600;">Historial de pagos</div>
         <div class="spacer"></div>
-        <button class="btn btn-primary" id="addSalaryBtn">+ Registrar retiro</button>
+        <button class="btn btn-primary" id="addSalaryBtn">+ Registrar pago</button>
       </div>
       <div class="table-wrap">
         <table class="inv-table">
           <thead>
-            <tr><th>Fecha</th><th>Monto</th><th>Notas</th><th></th></tr>
+            <tr><th>Fecha</th><th>Persona</th><th>Monto</th><th>Notas</th><th></th></tr>
           </thead>
           <tbody id="salaryTableBody"></tbody>
         </table>
       </div>
-      <div id="salaryEmptyNote" class="empty-note" style="display:none;">Aún no registras retiros de sueldo.</div>
+      <div id="salaryEmptyNote" class="empty-note" style="display:none;">Aún no registras pagos.</div>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="payeeModalOverlay">
+    <div class="modal-box" style="max-width:420px;">
+      <h2><span id="payeeModalTitle">Agregar persona</span> <span class="btn btn-ghost" id="closePayeeModalBtn" style="padding:4px 10px;">✕</span></h2>
+      <form id="payeeForm">
+        <div class="field">
+          <label>Nombre</label>
+          <input type="text" id="pay_name" required placeholder="Ej. Inversionista 1">
+        </div>
+        <div class="field-row">
+          <div class="field">
+            <label>Moneda</label>
+            <select id="pay_currency">
+              <option value="PEN">Soles (S/)</option>
+              <option value="USD">Dólares ($)</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>Monto mensual</label>
+            <input type="number" step="0.01" id="pay_amount" required>
+          </div>
+        </div>
+        <div class="field">
+          <label>Notas (opcional, ej. desglose)</label>
+          <input type="text" id="pay_notes" placeholder="Ej. S/320 capital + S/80 ruleteo">
+        </div>
+        <div class="modal-actions">
+          <button type="button" class="btn btn-danger" id="deletePayeeBtn" style="display:none;">Eliminar persona</button>
+          <div style="flex:1;"></div>
+          <button type="button" class="btn btn-ghost" id="cancelPayeeBtn">Cancelar</button>
+          <button type="submit" class="btn btn-primary">Guardar</button>
+        </div>
+      </form>
     </div>
   </div>
 
   <div class="modal-overlay" id="salaryModalOverlay">
     <div class="modal-box" style="max-width:420px;">
-      <h2><span>Registrar retiro de sueldo</span> <span class="btn btn-ghost" id="closeSalaryModalBtn" style="padding:4px 10px;">✕</span></h2>
+      <h2><span>Registrar pago</span> <span class="btn btn-ghost" id="closeSalaryModalBtn" style="padding:4px 10px;">✕</span></h2>
       <form id="salaryForm">
         <div class="field">
-          <label>Monto (S/)</label>
+          <label>Persona</label>
+          <select id="sal_payee" required></select>
+        </div>
+        <div class="field">
+          <label>Monto</label>
           <input type="number" step="0.01" id="sal_amount" required>
         </div>
         <div class="field">
@@ -570,7 +603,7 @@ table.inv-table img.thumb { width: 30px; height: 30px; object-fit: contain; back
         </div>
         <div class="field">
           <label>Notas (opcional)</label>
-          <input type="text" id="sal_notes" placeholder="Ej. Sueldo de agosto">
+          <input type="text" id="sal_notes" placeholder="Ej. Pago de agosto">
         </div>
         <div class="modal-actions">
           <div style="flex:1;"></div>
@@ -769,7 +802,13 @@ table.inv-table img.thumb { width: 30px; height: 30px; object-fit: contain; back
   });
 
   let salaryLog = [];
-  let salarySettings = { id: 999999, recordType: "settings", monthlySalaryPen: 0 };
+  let payees = [];
+  const DEFAULT_PAYEES = [
+    { id: 800001, recordType: "payee", name: "Yo (sueldo)", currency: "PEN", monthlyAmount: 0, notes: "" },
+    { id: 800002, recordType: "payee", name: "Inversionista 1", currency: "PEN", monthlyAmount: 400, notes: "S/320 capital + S/80 ruleteo" },
+    { id: 800003, recordType: "payee", name: "Inversionista 2", currency: "USD", monthlyAmount: 250, notes: "" },
+    { id: 800004, recordType: "payee", name: "Mamá", currency: "PEN", monthlyAmount: 0, notes: "" }
+  ];
 
   async function loadProducts() {
     try {
@@ -778,15 +817,20 @@ table.inv-table img.thumb { width: 30px; height: 30px; object-fit: contain; back
         const rows = await res.json();
         if (rows.length) {
           products = rows.filter(r => !r.data.recordType).map(r => r.data);
-          salaryLog = rows.filter(r => r.data.recordType === "salary").map(r => r.data);
-          const settingsRow = rows.find(r => r.data.recordType === "settings");
-          if (settingsRow) salarySettings = settingsRow.data;
+          salaryLog = rows.filter(r => r.data.recordType === "payment" || r.data.recordType === "salary").map(r => r.data);
+          payees = rows.filter(r => r.data.recordType === "payee").map(r => r.data);
+          if (!payees.length) {
+            payees = DEFAULT_PAYEES.slice();
+            await saveRecords(payees);
+          }
           return;
         }
       }
     } catch (e) { console.error("load error", e); }
     products = SEED.slice();
+    payees = DEFAULT_PAYEES.slice();
     await persist();
+    await saveRecords(payees);
   }
 
   async function saveRecords(records) {
@@ -802,7 +846,7 @@ table.inv-table img.thumb { width: 30px; height: 30px; object-fit: contain; back
 
   async function persist() { await saveRecords(products); }
   async function persistSalaryLog() { await saveRecords(salaryLog); }
-  async function persistSettings() { await saveRecords([salarySettings]); }
+  async function persistPayees() { await saveRecords(payees); }
 
   async function deleteRecordRemote(id) {
     try {
@@ -1589,46 +1633,115 @@ table.inv-table img.thumb { width: 30px; height: 30px; object-fit: contain; back
     `;
   }
 
-  // ===== Sueldo tab =====
+  // ===== Pagos fijos tab (sueldo propio + inversionistas + otros) =====
+  function paymentAmountUsd(r) {
+    // pagos guardados en USD ya vienen en USD; los guardados en PEN se convierten con el tipo de cambio del pago (o el actual si no se guardó)
+    if (r.currency === "USD") return Number(r.amountNative || 0);
+    const rate = r.fxRateAtPayment || fxRate;
+    return Number(r.amountNative || 0) / rate;
+  }
+
   function renderSalary() {
-    const grossProfit = products.filter(p => p.salePriceUsd != null).reduce((s,p) => s + (profitOf(p)||0), 0);
-    const grossProfitPen = grossProfit * fxRate;
-    const totalWithdrawn = salaryLog.reduce((s,r) => s + Number(r.amountPen||0), 0);
-    const realNetPen = grossProfitPen - totalWithdrawn;
+    const grossProfitUsd = products.filter(p => p.salePriceUsd != null).reduce((s,p) => s + (profitOf(p)||0), 0);
+    const totalPaidUsd = salaryLog.reduce((s,r) => s + paymentAmountUsd(r), 0);
+    const realNetUsd = grossProfitUsd - totalPaidUsd;
     el("salaryStatsGrid").innerHTML = `
-      <div class="stat-card"><div class="label">Ganancia bruta acumulada</div><div class="value">${fmtPEN(grossProfitPen)}</div></div>
-      <div class="stat-card"><div class="label">Sueldo retirado (total)</div><div class="value" style="color:#2563eb;">${fmtPEN(totalWithdrawn)}</div></div>
-      <div class="stat-card"><div class="label">Ganancia neta real (queda en el negocio)</div><div class="value teal">${fmtPEN(realNetPen)}</div></div>
+      <div class="stat-card"><div class="label">Ganancia bruta acumulada</div><div class="value dual">${fmtDual(grossProfitUsd)}</div></div>
+      <div class="stat-card"><div class="label">Pagado a todos (total)</div><div class="value dual" style="color:#2563eb;">${fmtDual(totalPaidUsd)}</div></div>
+      <div class="stat-card"><div class="label">Ganancia neta real (queda en el negocio)</div><div class="value dual teal">${fmtDual(realNetUsd)}</div></div>
     `;
-    el("salaryAmountInput").value = salarySettings.monthlySalaryPen || "";
+
+    // lista de personas con su total pagado acumulado
+    el("payeeList").innerHTML = payees.map(p => {
+      const paidToThem = salaryLog.filter(r => r.payeeId === p.id).reduce((s,r) => s + Number(r.amountNative||0), 0);
+      const symbol = p.currency === "USD" ? "$" : "S/ ";
+      return `<div data-payee-id="${p.id}" style="display:flex; justify-content:space-between; align-items:center; background:var(--paper-2); border:1px solid var(--line); border-radius:3px; padding:8px 12px; cursor:pointer;">
+        <div>
+          <div style="font-weight:600; font-size:13px; color:var(--ink);">${escapeHtml(p.name)}</div>
+          <div class="mono" style="font-size:10.5px; color:#8a8168;">${symbol}${Number(p.monthlyAmount||0).toFixed(2)}/mes${p.notes ? " · " + escapeHtml(p.notes) : ""}</div>
+        </div>
+        <div class="mono" style="font-size:12px; color:#0f766e;">${symbol}${paidToThem.toFixed(2)} pagado</div>
+      </div>`;
+    }).join("");
+    el("payeeList").querySelectorAll("[data-payee-id]").forEach(row => row.addEventListener("click", () => openPayeeModal(Number(row.dataset.payeeId))));
 
     const body = el("salaryTableBody");
     if (!salaryLog.length) { body.innerHTML = ""; el("salaryEmptyNote").style.display = "block"; return; }
     el("salaryEmptyNote").style.display = "none";
     const sorted = salaryLog.slice().sort((a,b) => (b.date||"").localeCompare(a.date||""));
-    body.innerHTML = sorted.map(r => `
-      <tr>
+    body.innerHTML = sorted.map(r => {
+      const payee = payees.find(p => p.id === r.payeeId);
+      const symbol = r.currency === "USD" ? "$" : "S/ ";
+      return `<tr>
         <td>${r.date || "-"}</td>
-        <td class="mono">${fmtPEN(r.amountPen)}</td>
+        <td>${payee ? escapeHtml(payee.name) : "(persona eliminada)"}</td>
+        <td class="mono">${symbol}${Number(r.amountNative||0).toFixed(2)}</td>
         <td>${escapeHtml(r.notes || "")}</td>
         <td><button class="unarrive-btn" data-del-salary="${r.id}">✕ eliminar</button></td>
-      </tr>`).join("");
+      </tr>`;
+    }).join("");
     body.querySelectorAll("[data-del-salary]").forEach(b => b.addEventListener("click", async (e) => {
       const id = Number(e.target.dataset.delSalary);
-      if (!confirm("¿Eliminar este retiro de sueldo?")) return;
+      if (!confirm("¿Eliminar este pago?")) return;
       await deleteRecordRemote(id);
       salaryLog = salaryLog.filter(r => r.id !== id);
       renderSalary();
     }));
   }
 
-  el("saveSalaryAmountBtn").addEventListener("click", async () => {
-    salarySettings.monthlySalaryPen = parseFloat(el("salaryAmountInput").value) || 0;
-    await persistSettings();
+  // ===== Payee (persona) modal =====
+  let editingPayeeId = null;
+  function openPayeeModal(id) {
+    editingPayeeId = id || null;
+    const p = id ? payees.find(x => x.id === id) : null;
+    el("payeeModalTitle").textContent = p ? "Editar persona" : "Agregar persona";
+    el("deletePayeeBtn").style.display = p ? "inline-block" : "none";
+    el("pay_name").value = p ? p.name : "";
+    el("pay_currency").value = p ? p.currency : "PEN";
+    el("pay_amount").value = p ? p.monthlyAmount : "";
+    el("pay_notes").value = p ? (p.notes || "") : "";
+    el("payeeModalOverlay").classList.add("open");
+  }
+  function closePayeeModal() { el("payeeModalOverlay").classList.remove("open"); editingPayeeId = null; }
+  el("addPayeeBtn").addEventListener("click", () => openPayeeModal(null));
+  el("closePayeeModalBtn").addEventListener("click", closePayeeModal);
+  el("cancelPayeeBtn").addEventListener("click", closePayeeModal);
+  el("payeeModalOverlay").addEventListener("click", (e) => { if (e.target.id === "payeeModalOverlay") closePayeeModal(); });
+  el("payeeForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const data = {
+      id: editingPayeeId || (800000 + Date.now() % 100000),
+      recordType: "payee",
+      name: el("pay_name").value.trim(),
+      currency: el("pay_currency").value,
+      monthlyAmount: parseFloat(el("pay_amount").value) || 0,
+      notes: el("pay_notes").value.trim()
+    };
+    if (editingPayeeId) {
+      const idx = payees.findIndex(p => p.id === editingPayeeId);
+      payees[idx] = data;
+    } else {
+      payees.push(data);
+    }
+    await persistPayees();
+    closePayeeModal();
+    renderSalary();
+  });
+  el("deletePayeeBtn").addEventListener("click", async () => {
+    if (!editingPayeeId) return;
+    if (!confirm("¿Eliminar esta persona? Los pagos ya registrados a ella se conservan en el historial.")) return;
+    await deleteRecordRemote(editingPayeeId);
+    payees = payees.filter(p => p.id !== editingPayeeId);
+    closePayeeModal();
+    renderSalary();
   });
 
+  // ===== Registrar pago modal =====
   function openSalaryModal() {
-    el("sal_amount").value = salarySettings.monthlySalaryPen || "";
+    el("sal_payee").innerHTML = payees.map(p => `<option value="${p.id}">${escapeHtml(p.name)} (${p.currency === "USD" ? "$" : "S/"}${Number(p.monthlyAmount||0).toFixed(2)}/mes)</option>`).join("");
+    if (payees.length) {
+      el("sal_amount").value = payees[0].monthlyAmount || "";
+    }
     el("sal_date").value = new Date().toISOString().slice(0,10);
     el("sal_notes").value = "";
     el("salaryModalOverlay").classList.add("open");
@@ -1638,12 +1751,22 @@ table.inv-table img.thumb { width: 30px; height: 30px; object-fit: contain; back
   el("closeSalaryModalBtn").addEventListener("click", closeSalaryModal);
   el("cancelSalaryBtn").addEventListener("click", closeSalaryModal);
   el("salaryModalOverlay").addEventListener("click", (e) => { if (e.target.id === "salaryModalOverlay") closeSalaryModal(); });
+  el("sal_payee").addEventListener("change", () => {
+    const p = payees.find(x => x.id === Number(el("sal_payee").value));
+    if (p) el("sal_amount").value = p.monthlyAmount || "";
+  });
   el("salaryForm").addEventListener("submit", async (e) => {
     e.preventDefault();
+    const payeeId = Number(el("sal_payee").value);
+    const payee = payees.find(p => p.id === payeeId);
+    if (!payee) return;
     const entry = {
       id: 900000 + Date.now() % 100000,
-      recordType: "salary",
-      amountPen: parseFloat(el("sal_amount").value) || 0,
+      recordType: "payment",
+      payeeId: payeeId,
+      currency: payee.currency,
+      amountNative: parseFloat(el("sal_amount").value) || 0,
+      fxRateAtPayment: fxRate,
       date: el("sal_date").value,
       notes: el("sal_notes").value.trim()
     };
