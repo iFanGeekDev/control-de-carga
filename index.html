@@ -201,7 +201,7 @@
   gap: 8px;
   align-items: center;
 }
-.toolbar input[type="text"], .toolbar select {
+.toolbar input[type="text"], .toolbar select, .toolbar input[type="date"] {
   background: var(--ink);
   border: 1px solid #333a48;
   color: var(--text-hi);
@@ -211,6 +211,7 @@
   font-size: 13px;
 }
 .toolbar input[type="text"] { flex: 1; min-width: 160px; }
+.toolbar input[type="date"] { color-scheme: dark; min-width: 132px; }
 .toolbar .spacer { flex: 1; }
 .btn {
   font-family: 'IBM Plex Sans', sans-serif;
@@ -422,6 +423,15 @@ table.inv-table img.thumb { width: 30px; height: 30px; object-fit: contain; back
       <option value="resale">Para revender</option>
       <option value="personal">Mío / uso personal</option>
     </select>
+    <select id="filterDateField">
+      <option value="">Fecha: ninguna</option>
+      <option value="arrivalDate">Fecha de llegada</option>
+      <option value="sentDate">Fecha de envío</option>
+      <option value="saleDate">Fecha de venta</option>
+    </select>
+    <input type="date" id="filterDateFrom" title="Desde">
+    <input type="date" id="filterDateTo" title="Hasta">
+    <button class="btn btn-ghost" id="clearDateFilterBtn">✕ Fecha</button>
     <div class="spacer"></div>
     <button class="btn btn-ghost active" id="viewGridBtn">Cuadrícula</button>
     <button class="btn btn-ghost" id="viewTableBtn">Tabla</button>
@@ -1009,6 +1019,9 @@ table.inv-table img.thumb { width: 30px; height: 30px; object-fit: contain; back
     const loc = el("filterLocation").value;
     const danna = el("filterDanna").value;
     const personal = el("filterPersonal").value;
+    const dateField = el("filterDateField").value;
+    const dateFrom = el("filterDateFrom").value;
+    const dateTo = el("filterDateTo").value;
     return products.filter(p => {
       if (q && !(p.name.toLowerCase().includes(q) || (p.tracking||"").toLowerCase().includes(q))) return false;
       if (cat && p.category !== cat) return false;
@@ -1017,6 +1030,12 @@ table.inv-table img.thumb { width: 30px; height: 30px; object-fit: contain; back
       if (danna === "no" && p.sentToDanna) return false;
       if (personal === "personal" && !p.personalUse) return false;
       if (personal === "resale" && p.personalUse) return false;
+      if (dateField && (dateFrom || dateTo)) {
+        const val = p[dateField];
+        if (!val) return false;
+        if (dateFrom && val < dateFrom) return false;
+        if (dateTo && val > dateTo) return false;
+      }
       return true;
     });
   }
@@ -1325,6 +1344,15 @@ table.inv-table img.thumb { width: 30px; height: 30px; object-fit: contain; back
   el("filterLocation").addEventListener("change", renderAll);
   el("filterDanna").addEventListener("change", renderAll);
   el("filterPersonal").addEventListener("change", renderAll);
+  el("filterDateField").addEventListener("change", renderAll);
+  el("filterDateFrom").addEventListener("change", renderAll);
+  el("filterDateTo").addEventListener("change", renderAll);
+  el("clearDateFilterBtn").addEventListener("click", () => {
+    el("filterDateField").value = "";
+    el("filterDateFrom").value = "";
+    el("filterDateTo").value = "";
+    renderAll();
+  });
   el("viewGridBtn").addEventListener("click", () => { viewMode = "grid"; el("viewGridBtn").classList.add("active"); el("viewTableBtn").classList.remove("active"); renderAll(); });
   el("viewTableBtn").addEventListener("click", () => { viewMode = "table"; el("viewTableBtn").classList.add("active"); el("viewGridBtn").classList.remove("active"); renderAll(); });
   el("salesSearchInput").addEventListener("input", renderVentas);
