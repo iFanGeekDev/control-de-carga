@@ -826,26 +826,42 @@ table.inv-table img.thumb { width: 30px; height: 30px; object-fit: contain; back
   ];
 
   async function loadProducts() {
+    // IMPORTANTE: nunca sobrescribir Supabase automáticamente ante un fallo de red.
+    // Un error de conexión NO significa "la base está vacía" — antes esta función
+    // confundía ambos casos y reseteaba tus datos reales con el inventario de fábrica.
     try {
       const res = await fetch(`${SUPABASE_URL}/rest/v1/products?select=data`, { headers: sbHeaders() });
-      if (res.ok) {
-        const rows = await res.json();
-        if (rows.length) {
-          products = rows.filter(r => !r.data.recordType).map(r => r.data);
-          salaryLog = rows.filter(r => r.data.recordType === "payment" || r.data.recordType === "salary").map(r => r.data);
-          payees = rows.filter(r => r.data.recordType === "payee").map(r => r.data);
-          if (!payees.length) {
-            payees = DEFAULT_PAYEES.slice();
-            await saveRecords(payees);
-          }
-          return;
-        }
+      if (!res.ok) {
+        console.error("Supabase fetch failed", res.status);
+        alert("No se pudo conectar con la base de datos (código " + res.status + "). Recarga la página — no se modificó ningún dato.");
+        products = []; payees = []; salaryLog = [];
+        return;
       }
-    } catch (e) { console.error("load error", e); }
-    products = SEED.slice();
-    payees = DEFAULT_PAYEES.slice();
-    await persist();
-    await saveRecords(payees);
+      const rows = await res.json();
+      if (rows.length) {
+        products = rows.filter(r => !r.data.recordType).map(r => r.data);
+        salaryLog = rows.filter(r => r.data.recordType === "payment" || r.data.recordType === "salary").map(r => r.data);
+        payees = rows.filter(r => r.data.recordType === "payee").map(r => r.data);
+        if (!payees.length) {
+          payees = DEFAULT_PAYEES.slice();
+          await saveRecords(payees);
+        }
+        return;
+      }
+      // Tabla genuinamente vacía (primera vez) — pedir confirmación antes de sembrar datos.
+      if (!confirm("La base de datos está vacía. ¿Cargar el inventario inicial de fábrica?")) {
+        products = []; payees = DEFAULT_PAYEES.slice(); salaryLog = [];
+        return;
+      }
+      products = SEED.slice();
+      payees = DEFAULT_PAYEES.slice();
+      await persist();
+      await saveRecords(payees);
+    } catch (e) {
+      console.error("load error", e);
+      alert("Error de conexión al cargar tus datos. No se modificó nada — recarga la página e intenta de nuevo.");
+      products = []; payees = []; salaryLog = [];
+    }
   }
 
   async function saveRecords(records) {
